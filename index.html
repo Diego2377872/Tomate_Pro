@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes, viewport-fit=cover">
     <title>Tomate PRO 🍅 | AgTech Suite</title>
     <!-- Leaflet CSS/JS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -17,7 +17,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <!-- Export to Excel (SheetJS) -->
     <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
-    <!-- Export to Shapefile (shp-write) and file-saver -->
+    <!-- Export to Shapefile (shp-write) y file-saver -->
     <script src="https://unpkg.com/shp-write@2.0.1/shpwrite.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
     <style>
@@ -34,6 +34,7 @@
             --accent-gold: #f4b942;
             --accent-green: #2c7a4a;
             --accent-red: #c44536;
+            --accent-blue: #3a6b8f;
             --modal-bg: #111827;
             --modal-header: #1e293b;
             --ficha-bg: #0f172a;
@@ -53,6 +54,7 @@
             --accent-gold: #e67e22;
             --accent-green: #2c7a4a;
             --accent-red: #c44536;
+            --accent-blue: #2c5570;
             --modal-bg: #ffffff;
             --modal-header: #1e3a5f;
             --ficha-bg: #f9fbfd;
@@ -79,7 +81,6 @@
             margin: 0 auto;
         }
 
-        /* Header con efecto glass */
         .glass-header {
             background: var(--bg-secondary);
             backdrop-filter: blur(12px);
@@ -276,11 +277,17 @@
         }
         .acciones i {
             cursor: pointer;
-            color: var(--text-secondary);
+            font-size: 1.2rem;
             transition: 0.1s;
         }
+        /* Colores de iconos */
+        .icon-map { color: var(--accent-gold); }
+        .icon-view { color: var(--accent-green); }
+        .icon-edit { color: var(--accent-blue); }
+        .icon-delete { color: var(--accent-red); }
         .acciones i:hover {
-            color: var(--accent-gold);
+            opacity: 0.8;
+            transform: scale(1.05);
         }
         .badge-variedad {
             background: rgba(244,185,66,0.2);
@@ -331,7 +338,12 @@
             width: auto;
             margin: 0;
         }
-        /* Modal moderno */
+        /* Scroll para la lista de registros */
+        #registrosList {
+            max-height: 400px;
+            overflow-y: auto;
+            padding-right: 5px;
+        }
         .modal-overlay {
             position: fixed;
             top: 0;
@@ -455,6 +467,9 @@
             width: auto;
             padding: 0 8px;
         }
+        button, .btn-logout, .btn-secondary, .btn-outline, .acciones i {
+            touch-action: manipulation;
+        }
     </style>
 </head>
 <body>
@@ -503,6 +518,37 @@
     const tipoSueloList = ["Arcilloso", "Arenoso", "Franco", "Franco-arcilloso", "Franco-arenoso", "Limoso", "Otro"];
     const plagasCheck = ["Mosca blanca", "Trips", "Pulgón", "Minador", "Gusano cogollero","Palomilla","Ybytazo", "Ácaros", "Otra"];
     const enfermedadesCheck = ["Mildiu", "Mbiru", "Septoriosis", "Vira Cabeza", "Tizon","Botrytis", "Fusarium", "Mancha Bacteriana", "Otra"];
+
+    // Paleta de colores para gráficos
+    const colorPalette = ['#f4b942', '#2c7a4a', '#c44536', '#3a6b8f', '#f39c12', '#27ae60', '#e67e22', '#2980b9', '#8e44ad', '#16a085'];
+
+    // ========== TRADUCCIÓN DE ERRORES DE SUPABASE ==========
+    function translateSupabaseError(errorMessage) {
+        if (!errorMessage) return "Error desconocido";
+        const lowerMsg = errorMessage.toLowerCase();
+        if (lowerMsg.includes("email rate limit exceeded")) {
+            return "⚠️ Has alcanzado el límite de registros por hora. Espera unos minutos e intenta de nuevo.";
+        }
+        if (lowerMsg.includes("invalid login credentials")) {
+            return "❌ Credenciales inválidas. Revisa tu email y contraseña.";
+        }
+        if (lowerMsg.includes("user already registered")) {
+            return "📧 Este correo ya está registrado. Inicia sesión o usa una cuenta diferente.";
+        }
+        if (lowerMsg.includes("email not confirmed")) {
+            return "✉️ Debes confirmar tu correo electrónico antes de iniciar sesión. Revisa tu bandeja de entrada.";
+        }
+        if (lowerMsg.includes("password should be at least 6 characters")) {
+            return "🔐 La contraseña debe tener al menos 6 caracteres.";
+        }
+        if (lowerMsg.includes("invalid email")) {
+            return "📧 El formato del correo electrónico no es válido.";
+        }
+        if (lowerMsg.includes("network error")) {
+            return "🌐 Error de red. Verifica tu conexión a Internet.";
+        }
+        return `⚠️ Error: ${errorMessage}`;
+    }
 
     function applyTheme() {
         if (theme === 'light') {
@@ -595,29 +641,33 @@
             const email = document.getElementById('loginEmail').value;
             const pwd = document.getElementById('loginPassword').value;
             const { error } = await supabaseClient.auth.signInWithPassword({ email, password: pwd });
-            if (error) document.getElementById('authMsg').innerText = error.message;
-            else renderApp();
+            if (error) {
+                document.getElementById('authMsg').innerHTML = translateSupabaseError(error.message);
+            } else {
+                renderApp();
+            }
         });
         document.getElementById('btnRegister')?.addEventListener('click', async () => {
             const email = document.getElementById('loginEmail').value;
             const pwd = document.getElementById('loginPassword').value;
             const { error } = await supabaseClient.auth.signUp({ email, password: pwd });
-            if (error) document.getElementById('authMsg').innerText = error.message;
-            else document.getElementById('authMsg').innerHTML = "✅ Registro exitoso, ahora inicia sesión";
+            if (error) {
+                document.getElementById('authMsg').innerHTML = translateSupabaseError(error.message);
+            } else {
+                document.getElementById('authMsg').innerHTML = "✅ Registro exitoso. Revisa tu correo para confirmar la cuenta, luego inicia sesión.";
+            }
         });
     }
 
     function initMap() {
         if (currentMap) currentMap.remove();
         currentMap = L.map('map').setView([-25.4, -57.5], 13);
-        // Capa base por defecto: OpenStreetMap
         currentBaseLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
         }).addTo(currentMap);
         markersLayer = L.layerGroup().addTo(currentMap);
         currentMarker = null;
 
-        // Crear control personalizado con iconos profesionales dentro del mapa
         const customControl = L.Control.extend({
             options: { position: 'topright' },
             onAdd: function(map) {
@@ -673,7 +723,6 @@
         });
         setActiveStyle('map-osm');
 
-        // Hacer clic en el mapa para marcar punto
         currentMap.on('click', function(e) {
             setMarker(e.latlng.lat, e.latlng.lng);
         });
@@ -798,7 +847,7 @@
                     <div class="premium-card">
                         <div class="card-title"><i class="fas fa-chart-pie"></i> Estadísticas</div>
                         <div style="margin-bottom: 10px;">
-                            <label>Variable para gráfico circular</label>
+                            <label>Variable para gráfico</label>
                             <select id="chartVariable" style="margin-bottom: 10px;">
                                 <option value="fenologia">Fenología</option>
                                 <option value="variedad">Variedad</option>
@@ -808,7 +857,14 @@
                                 <option value="analisis_suelo">Análisis de suelo</option>
                             </select>
                         </div>
-                        <canvas id="miniChart" style="max-height: 200px; margin-bottom: 20px;"></canvas>
+                        <div style="margin-bottom: 10px;">
+                            <label>Tipo de gráfico</label>
+                            <select id="chartType" style="margin-bottom: 10px;">
+                                <option value="pie">Circular (Pastel)</option>
+                                <option value="bar">Barras</option>
+                            </select>
+                        </div>
+                        <canvas id="miniChart" style="max-height: 250px; margin-bottom: 20px;"></canvas>
                         
                         <div class="card-title" style="margin-top: 20px;"><i class="fas fa-list"></i> Últimos monitoreos</div>
                         <div id="registrosList" class="tabla-registros">
@@ -865,10 +921,8 @@ productor,ci,fecha,fecha_siembra,lat,lng,sistema_productivo,variedad,fenologia,r
             </div>
         `;
 
-        // Inicializar mapa con selector integrado
         initMap();
 
-        // Botón GPS
         document.getElementById('gpsBtn')?.addEventListener('click', () => {
             if (!navigator.geolocation) {
                 alert("Geolocalización no soportada");
@@ -880,10 +934,8 @@ productor,ci,fecha,fecha_siembra,lat,lng,sistema_productivo,variedad,fenologia,r
             );
         });
 
-        // Botón limpiar marcador
         document.getElementById('clearMarkerBtn')?.addEventListener('click', () => clearMarker());
 
-        // Theme toggle
         const themeToggle = document.getElementById('themeToggle');
         if (themeToggle) {
             themeToggle.addEventListener('click', () => {
@@ -897,7 +949,6 @@ productor,ci,fecha,fecha_siembra,lat,lng,sistema_productivo,variedad,fenologia,r
             });
         }
 
-        // Lógica campos "Otro"
         const sistemaSelect = document.getElementById('sistemaProductivo');
         const sistemaOtro = document.getElementById('sistemaProductivoOtro');
         sistemaSelect.addEventListener('change', () => toggleOtro(sistemaSelect, sistemaOtro, 'Otro'));
@@ -912,7 +963,6 @@ productor,ci,fecha,fecha_siembra,lat,lng,sistema_productivo,variedad,fenologia,r
             else input.classList.add('hidden');
         }
 
-        // Submit form
         const form = document.getElementById('proForm');
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -969,7 +1019,7 @@ productor,ci,fecha,fecha_siembra,lat,lng,sistema_productivo,variedad,fenologia,r
             
             const { error } = await supabaseClient.from('tomate_registros').insert([payload]);
             if (error) {
-                alert("Error en la nube: " + error.message);
+                alert(translateSupabaseError(error.message));
             } else {
                 alert("✅ Registro guardado exitosamente");
                 form.reset();
@@ -987,22 +1037,22 @@ productor,ci,fecha,fecha_siembra,lat,lng,sistema_productivo,variedad,fenologia,r
         });
         document.getElementById('refreshDataBtn')?.addEventListener('click', () => loadUserRegistros());
 
-        // Selector de variable para el gráfico
         const chartVarSelect = document.getElementById('chartVariable');
-        chartVarSelect.addEventListener('change', () => updateMiniChart(registrosData, chartVarSelect.value));
+        const chartTypeSelect = document.getElementById('chartType');
+        const updateChart = () => {
+            updateMiniChart(registrosData, chartVarSelect.value, chartTypeSelect.value);
+        };
+        chartVarSelect.addEventListener('change', updateChart);
+        chartTypeSelect.addEventListener('change', updateChart);
 
-        // Exportar Excel
         document.getElementById('exportExcelBtn')?.addEventListener('click', () => exportToExcel(registrosData));
-        // Exportar Shapefile (sin recomendación IA)
         document.getElementById('exportShapefileBtn')?.addEventListener('click', () => exportToShapefile(registrosData));
 
-        // Modal finca
         const modal = document.getElementById('fincaModal');
         const closeModal = () => modal.classList.remove('active');
         document.getElementById('closeModalBtn').addEventListener('click', closeModal);
         modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
 
-        // Batch upload modal
         const batchModal = document.getElementById('batchModal');
         const closeBatchModal = () => batchModal.classList.remove('active');
         document.getElementById('closeBatchModalBtn').addEventListener('click', closeBatchModal);
@@ -1075,7 +1125,7 @@ productor,ci,fecha,fecha_siembra,lat,lng,sistema_productivo,variedad,fenologia,r
                     }
                     const { error } = await supabaseClient.from('tomate_registros').insert(toInsert);
                     if (error) {
-                        document.getElementById('batchResult').innerHTML = `<p style="color:var(--accent-red);">Error en inserción masiva: ${error.message}</p>`;
+                        document.getElementById('batchResult').innerHTML = `<p style="color:var(--accent-red);">Error en inserción masiva: ${translateSupabaseError(error.message)}</p>`;
                     } else {
                         document.getElementById('batchResult').innerHTML = `<p style="color:var(--accent-green);">✅ ${toInsert.length} registros insertados correctamente. ${errors.length ? 'Errores: '+errors.join('<br>') : ''}</p>`;
                         closeBatchModal();
@@ -1088,7 +1138,6 @@ productor,ci,fecha,fecha_siembra,lat,lng,sistema_productivo,variedad,fenologia,r
             });
         });
 
-        // Modal edición
         const editModal = document.getElementById('editModal');
         const closeEditModal = () => editModal.classList.remove('active');
         document.getElementById('closeEditModalBtn').addEventListener('click', closeEditModal);
@@ -1097,7 +1146,6 @@ productor,ci,fecha,fecha_siembra,lat,lng,sistema_productivo,variedad,fenologia,r
         window.openEditModal = async (id) => {
             const registro = registrosData.find(r => r.id === id);
             if (!registro) return;
-            // Llenar modal con formulario de edición
             const modalBody = document.getElementById('editModalBody');
             modalBody.innerHTML = `
                 <form id="editForm">
@@ -1167,7 +1215,6 @@ productor,ci,fecha,fecha_siembra,lat,lng,sistema_productivo,variedad,fenologia,r
                 </form>
             `;
             
-            // Manejar "otro" en selects de edición
             const editSistemaSelect = document.getElementById('edit_sistemaProductivo');
             const editSistemaOtro = document.getElementById('edit_sistemaProductivoOtro');
             const editVariedadSelect = document.getElementById('edit_variedadSelect');
@@ -1183,7 +1230,6 @@ productor,ci,fecha,fecha_siembra,lat,lng,sistema_productivo,variedad,fenologia,r
             editVariedadSelect.addEventListener('change', () => toggleEditOtro(editVariedadSelect, editVariedadOtro, 'Otro'));
             editRiegoSelect.addEventListener('change', () => toggleEditOtro(editRiegoSelect, editRiegoOtro, 'Otro'));
             
-            // Prellenar campos "otro" si corresponde
             if (registro.sistema_productivo && !sistemaProductivoList.includes(registro.sistema_productivo)) {
                 editSistemaSelect.value = 'Otro';
                 editSistemaOtro.value = registro.sistema_productivo;
@@ -1252,12 +1298,11 @@ productor,ci,fecha,fecha_siembra,lat,lng,sistema_productivo,variedad,fenologia,r
                     notas: document.getElementById('edit_notas').value,
                     analisis_suelo: analisisSuelo
                 };
-                // Recalcular recomendación IA
                 updatedData.recomendacion = generarRecomendacionPro(updatedData);
                 
                 const { error } = await supabaseClient.from('tomate_registros').update(updatedData).eq('id', id);
                 if (error) {
-                    alert("Error al actualizar: " + error.message);
+                    alert(translateSupabaseError(error.message));
                 } else {
                     alert("✅ Registro actualizado exitosamente");
                     closeEditModal();
@@ -1336,12 +1381,14 @@ productor,ci,fecha,fecha_siembra,lat,lng,sistema_productivo,variedad,fenologia,r
             .eq('user_id', currentUser.id)
             .order('created_at', { ascending: false });
         if (error) {
-            document.getElementById('registrosList').innerHTML = `<div class="empty-state">⚠️ Error: ${error.message}</div>`;
+            document.getElementById('registrosList').innerHTML = `<div class="empty-state">⚠️ Error: ${translateSupabaseError(error.message)}</div>`;
             return;
         }
         registrosData = data || [];
         renderRegistrosList(registrosData);
-        updateMiniChart(registrosData, document.getElementById('chartVariable')?.value || 'fenologia');
+        const chartVar = document.getElementById('chartVariable')?.value || 'fenologia';
+        const chartType = document.getElementById('chartType')?.value || 'pie';
+        updateMiniChart(registrosData, chartVar, chartType);
         updateMapMarkers(registrosData);
     }
 
@@ -1389,10 +1436,10 @@ productor,ci,fecha,fecha_siembra,lat,lng,sistema_productivo,variedad,fenologia,r
                         <span><i class="fas fa-flask"></i> ${reg.analisis_suelo ? 'Sí' : 'No'}</span>
                     </div>
                     <div class="acciones">
-                        <i class="fas fa-map-marker-alt" onclick="verEnMapa(${reg.lat}, ${reg.lng})" title="Ver en mapa"></i>
-                        <i class="fas fa-eye" onclick="window.openProducerModal('${reg.productor}')" title="Ver finca"></i>
-                        <i class="fas fa-edit" onclick="window.openEditModal('${reg.id}')" title="Editar"></i>
-                        <i class="fas fa-trash-alt" onclick="eliminarRegistro('${reg.id}')" title="Eliminar"></i>
+                        <i class="fas fa-map-marker-alt icon-map" onclick="verEnMapa(${reg.lat}, ${reg.lng})" title="Ver en mapa"></i>
+                        <i class="fas fa-eye icon-view" onclick="window.openProducerModal('${reg.productor}')" title="Ver finca"></i>
+                        <i class="fas fa-edit icon-edit" onclick="window.openEditModal('${reg.id}')" title="Editar"></i>
+                        <i class="fas fa-trash-alt icon-delete" onclick="eliminarRegistro('${reg.id}')" title="Eliminar"></i>
                     </div>
                 </div>
             `;
@@ -1414,11 +1461,11 @@ productor,ci,fecha,fecha_siembra,lat,lng,sistema_productivo,variedad,fenologia,r
     window.eliminarRegistro = async (id) => {
         if (!confirm("¿Eliminar este registro permanentemente?")) return;
         const { error } = await supabaseClient.from('tomate_registros').delete().eq('id', id).eq('user_id', currentUser.id);
-        if (error) alert("Error al eliminar: " + error.message);
+        if (error) alert(translateSupabaseError(error.message));
         else loadUserRegistros();
     };
 
-    function updateMiniChart(registros, variable) {
+    function updateMiniChart(registros, variable, chartType = 'pie') {
         const canvas = document.getElementById('miniChart');
         if (!canvas) return;
         if (chartInstance) chartInstance.destroy();
@@ -1436,21 +1483,72 @@ productor,ci,fecha,fecha_siembra,lat,lng,sistema_productivo,variedad,fenologia,r
         const labels = Object.keys(counts);
         const data = labels.map(l => counts[l]);
         const ctx = canvas.getContext('2d');
-        chartInstance = new Chart(ctx, {
-            type: 'pie',
-            data: {
-                labels: labels,
-                datasets: [{
-                    data: data,
-                    backgroundColor: ['#f4b942', '#2c7a4a', '#c44536', '#3a6b8f', '#f39c12', '#27ae60', '#e67e22', '#2980b9', '#8e44ad', '#16a085'],
-                    borderWidth: 0
-                }]
-            },
-            options: {
-                responsive: true,
-                plugins: { legend: { position: 'bottom', labels: { font: { size: 10, color: getComputedStyle(document.body).getPropertyValue('--text-primary') } } } }
-            }
-        });
+        const textColor = getComputedStyle(document.body).getPropertyValue('--text-primary');
+        
+        // Generar colores para cada barra usando la paleta
+        const barColors = data.map((_, idx) => colorPalette[idx % colorPalette.length]);
+        
+        if (chartType === 'pie') {
+            chartInstance = new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: data,
+                        backgroundColor: colorPalette.slice(0, labels.length),
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: { 
+                            position: 'bottom', 
+                            labels: { font: { size: 11, color: textColor } }
+                        },
+                        tooltip: { bodyFont: { size: 11 } }
+                    }
+                }
+            });
+        } else if (chartType === 'bar') {
+            chartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Cantidad de registros',
+                        data: data,
+                        backgroundColor: barColors,
+                        borderColor: barColors.map(c => c),
+                        borderWidth: 1,
+                        borderRadius: 8
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: { 
+                            position: 'top', 
+                            labels: { font: { size: 11, color: textColor } }
+                        },
+                        tooltip: { bodyFont: { size: 11 } }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: { stepSize: 1, color: textColor },
+                            grid: { color: 'rgba(255,255,255,0.1)' }
+                        },
+                        x: {
+                            ticks: { color: textColor, maxRotation: 45, minRotation: 30 },
+                            grid: { display: false }
+                        }
+                    }
+                }
+            });
+        }
     }
 
     function exportToExcel(registros) {
@@ -1501,7 +1599,6 @@ productor,ci,fecha,fecha_siembra,lat,lng,sistema_productivo,variedad,fenologia,r
             return;
         }
         const features = validPoints.map(reg => {
-            // Asegurar que todos los valores sean válidos para shapefile (strings o números)
             const props = {
                 productor: (reg.productor || '').substring(0, 80),
                 ci: (reg.ci || '').substring(0, 20),
@@ -1537,7 +1634,6 @@ productor,ci,fecha,fecha_siembra,lat,lng,sistema_productivo,variedad,fenologia,r
             type: "FeatureCollection",
             features: features
         };
-        // Verificar que shpwrite esté disponible
         if (typeof shpwrite === 'undefined') {
             alert("La librería para shapefile no está cargada. Recarga la página.");
             return;
@@ -1560,25 +1656,6 @@ productor,ci,fecha,fecha_siembra,lat,lng,sistema_productivo,variedad,fenologia,r
     renderApp();
 </script>
 
-<!-- SQL para actualizar la tabla en Supabase (ejecutar en SQL Editor) -->
-<!--
-ALTER TABLE tomate_registros 
-ADD COLUMN IF NOT EXISTS ci text,
-ADD COLUMN IF NOT EXISTS fecha_siembra date,
-ADD COLUMN IF NOT EXISTS sistema_productivo text,
-ADD COLUMN IF NOT EXISTS num_plantas integer,
-ADD COLUMN IF NOT EXISTS marco_plantacion text,
-ADD COLUMN IF NOT EXISTS tipo_suelo text,
-ADD COLUMN IF NOT EXISTS ph numeric,
-ADD COLUMN IF NOT EXISTS materia_organica numeric,
-ADD COLUMN IF NOT EXISTS plagas text[],
-ADD COLUMN IF NOT EXISTS enfermedades text[],
-ADD COLUMN IF NOT EXISTS control_aplicado text,
-ADD COLUMN IF NOT EXISTS analisis_suelo boolean DEFAULT false;
 
--- Políticas RLS (si no existen)
-CREATE POLICY IF NOT EXISTS "Usuarios pueden ver sus propios registros" ON tomate_registros
-    FOR ALL USING (auth.uid() = user_id);
--->
 </body>
 </html>
